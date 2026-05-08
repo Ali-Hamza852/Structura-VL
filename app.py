@@ -14,25 +14,24 @@ custom_css = """
 button.primary {background: linear-gradient(90deg, #6366f1, #a855f7) !important; color: white !important; font-weight: bold !important; border: none !important; transition: 0.3s;}
 button.primary:hover {transform: scale(1.02); opacity: 0.9;}
 .tabs {border: none !important;}
-.gradio-container .prose h3 {color: #818cf8;}
 footer {visibility: hidden}
 """
 
 # --- Path Configuration ---
-# Since files are in the same directory as app.py
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
+# Files are in the root directory alongside app.py
 LORA_PATH = CURRENT_DIR 
 
 # --- Model Loading ---
-print(f"Loading Base Model: {MODEL_ID}")
+print(f"Initializing Base Model: {MODEL_ID}")
 base_model = Qwen2VLForConditionalGeneration.from_pretrained(
     MODEL_ID,
     torch_dtype=torch.float16,
     device_map="auto"
 )
 
-print(f"Loading Adapters from: {LORA_PATH}")
+print(f"Applying LoRA Adapters from: {LORA_PATH}")
 model = PeftModel.from_pretrained(base_model, LORA_PATH)
 processor = AutoProcessor.from_pretrained(LORA_PATH)
 model.eval()
@@ -40,77 +39,82 @@ model.eval()
 # --- Inference Logic ---
 def analyze_document(input_img, custom_prompt):
     if input_img is None:
-        return "Please upload an image first."
+        return "Error: No image provided. Please upload a document."
     
     if not custom_prompt:
         custom_prompt = "Convert this document image into structured Markdown."
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": input_img},
-                {"type": "text", "text": custom_prompt},
-            ],
-        }
-    ]
-
-    # Preprocessing
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, _ = process_vision_info(messages)
-    
-    inputs = processor(
-        text=[text],
-        images=image_inputs,
-        padding=True,
-        return_tensors="pt"
-    ).to("cuda")
-
-    # Generation
-    with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=1024)
-        
-        generated_ids_trimmed = [
-            out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    try:
+        # Prepare content for Qwen2-VL
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": input_img},
+                    {"type": "text", "text": custom_prompt},
+                ],
+            }
         ]
+
+        # 1. Apply Template
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
-        output_text = processor.batch_decode(
-            generated_ids_trimmed, 
-            skip_special_tokens=True, 
-            clean_up_tokenization_spaces=False
-        )
+        # 2. Extract Vision Info
+        image_inputs, video_inputs = process_vision_info(messages)
+        
+        # 3. Process Inputs (Force float16 to match model)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt"
+        ).to(model.device).to(torch.float16)
 
-    return output_text[0]
+        # 4. Generate
+        with torch.no_grad():
+            generated_ids = model.generate(
+                **inputs, 
+                max_new_tokens=1024,
+                do_sample=False # Keep it deterministic for document tasks
+            )
+            
+            # Trim the prompt tokens
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            
+            output_text = processor.batch_decode(
+                generated_ids_trimmed, 
+                skip_special_tokens=True, 
+                clean_up_tokenization_spaces=False
+            )
 
-# --- UI Construction ---
+        return output_text[0]
+    
+    except Exception as e:
+        return f"System Error: {str(e)}"
+
+# --- UI Layout ---
 with gr.Blocks(css=custom_css, theme=gr.themes.Monochrome()) as demo:
-    with gr.Column():
-        gr.Markdown("# 🔮 STRUCTURA-VL: DOCUMENT INTELLIGENCE", elem_id="header-text")
-        gr.Markdown("Fine-tuned Vision-Language Model specializing in OCR and Layout Analysis.")
+    gr.Markdown("# 🔮 STRUCTURA-VL: DOCUMENT INTELLIGENCE", elem_id="header-text")
+    
+    with gr.Row():
+        with gr.Column(scale=1, variant="panel"):
+            img_input = gr.Image(type="pil", label="Input Document")
+            prompt_input = gr.Textbox(
+                label="System Prompt", 
+                value="Convert this document image into structured Markdown.",
+                lines=2
+            )
+            submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary")
+        
+        with gr.Column(scale=2):
+            md_output = gr.Markdown(label="Rendered Result")
+            with gr.Accordion("Raw Markdown Source", open=False):
+                raw_output = gr.Code(label="Code", language="markdown")
 
-    with gr.Tabs(elem_classes="tabs"):
-        with gr.TabItem("🚀 Conversion Lab"):
-            with gr.Row():
-                with gr.Column(scale=1, variant="panel"):
-                    gr.Markdown("### Input Source")
-                    img_input = gr.Image(type="pil", label="Upload Document/Scan")
-                    
-                    with gr.Accordion("Advanced Settings", open=False):
-                        prompt_input = gr.Textbox(
-                            label="System Prompt", 
-                            placeholder="Convert this document into structured Markdown...",
-                            lines=2
-                        )
-                    
-                    submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary")
-                
-                with gr.Column(scale=2):
-                    gr.Markdown("### Markdown Output")
-                    md_output = gr.Markdown(label="Rendered Result", value="*Result will appear here...*")
-                    with gr.Accordion("Raw Text", open=False):
-                        raw_output = gr.Code(label="Source Code", language="markdown")
-
-    # Mapping logic
+    # Map Events
     submit_btn.click(
         fn=analyze_document, 
         inputs=[img_input, prompt_input], 
