@@ -19,9 +19,9 @@ footer {visibility: hidden}
 """
 
 # --- Path Configuration ---
-# Since files are in the same directory as app.py, we point to CURRENT_DIR
+# Since files are in the same directory as app.py
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct" [cite: 37, 38]
+MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
 LORA_PATH = CURRENT_DIR 
 
 # --- Model Loading ---
@@ -33,18 +33,17 @@ base_model = Qwen2VLForConditionalGeneration.from_pretrained(
 )
 
 print(f"Loading Adapters from: {LORA_PATH}")
-# This will now look for adapter_config.json in the root directory
-model = PeftModel.from_pretrained(base_model, LORA_PATH) [cite: 43]
+model = PeftModel.from_pretrained(base_model, LORA_PATH)
 processor = AutoProcessor.from_pretrained(LORA_PATH)
 model.eval()
 
 # --- Inference Logic ---
 def analyze_document(input_img, custom_prompt):
     if input_img is None:
-        return "Please upload an image first." [cite: 100]
+        return "Please upload an image first."
     
     if not custom_prompt:
-        custom_prompt = "Convert this document image into structured Markdown." [cite: 22, 23]
+        custom_prompt = "Convert this document image into structured Markdown."
 
     messages = [
         {
@@ -54,9 +53,9 @@ def analyze_document(input_img, custom_prompt):
                 {"type": "text", "text": custom_prompt},
             ],
         }
-    ] [cite: 51, 52, 53]
+    ]
 
-    # Preparation
+    # Preprocessing
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     image_inputs, _ = process_vision_info(messages)
     
@@ -69,7 +68,7 @@ def analyze_document(input_img, custom_prompt):
 
     # Generation
     with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=1024) [cite: 75]
+        generated_ids = model.generate(**inputs, max_new_tokens=1024)
         
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -81,33 +80,33 @@ def analyze_document(input_img, custom_prompt):
             clean_up_tokenization_spaces=False
         )
 
-    return output_text[0] [cite: 101]
+    return output_text[0]
 
 # --- UI Construction ---
 with gr.Blocks(css=custom_css, theme=gr.themes.Monochrome()) as demo:
     with gr.Column():
         gr.Markdown("# 🔮 STRUCTURA-VL: DOCUMENT INTELLIGENCE", elem_id="header-text")
-        gr.Markdown("Fine-tuned Vision-Language Model specializing in OCR, Layout Analysis, and LaTeX-to-Markdown conversion.") [cite: 21, 22]
+        gr.Markdown("Fine-tuned Vision-Language Model specializing in OCR and Layout Analysis.")
 
     with gr.Tabs(elem_classes="tabs"):
         with gr.TabItem("🚀 Conversion Lab"):
             with gr.Row():
                 with gr.Column(scale=1, variant="panel"):
                     gr.Markdown("### Input Source")
-                    img_input = gr.Image(type="pil", label="Upload Document/Scan") [cite: 100]
+                    img_input = gr.Image(type="pil", label="Upload Document/Scan")
                     
                     with gr.Accordion("Advanced Settings", open=False):
                         prompt_input = gr.Textbox(
                             label="System Prompt", 
                             placeholder="Convert this document into structured Markdown...",
                             lines=2
-                        ) [cite: 53]
+                        )
                     
-                    submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary") [cite: 101]
+                    submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary")
                 
                 with gr.Column(scale=2):
                     gr.Markdown("### Markdown Output")
-                    md_output = gr.Markdown(label="Rendered Result", value="*Result will appear here...*") [cite: 101]
+                    md_output = gr.Markdown(label="Rendered Result", value="*Result will appear here...*")
                     with gr.Accordion("Raw Text", open=False):
                         raw_output = gr.Code(label="Source Code", language="markdown")
 
