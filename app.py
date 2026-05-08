@@ -1,11 +1,12 @@
-import gradio as gr
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-from peft import PeftModel
+import os
 import torch
-from qwen_vl_utils import process_vision_info
+import gradio as gr
 from PIL import Image
+from peft import PeftModel
+from qwen_vl_utils import process_vision_info
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 
-# ── Professional "Cyber-Dark" CSS ─────────────────────────────
+# --- Professional "Cyber-Dark" CSS ---
 custom_css = """
 .gradio-container {background-color: #050505; color: #e5e7eb;}
 .feedback-card {border: 1px solid #6366f1; padding: 20px; border-radius: 12px; background: #0f172a; margin: 10px 0;}
@@ -17,28 +18,33 @@ button.primary:hover {transform: scale(1.02); opacity: 0.9;}
 footer {visibility: hidden}
 """
 
-# ── Model Initialization ──────────────────────────────────────
-# Note: Ensure your extracted zip files are in the './lora_weights' folder
-MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
-LORA_PATH = "./lora_weights"
+# --- Path Configuration ---
+# Since files are in the same directory as app.py, we point to CURRENT_DIR
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct" [cite: 37, 38]
+LORA_PATH = CURRENT_DIR 
 
-print("Loading model to GPU...")
+# --- Model Loading ---
+print(f"Loading Base Model: {MODEL_ID}")
 base_model = Qwen2VLForConditionalGeneration.from_pretrained(
     MODEL_ID,
     torch_dtype=torch.float16,
     device_map="auto"
 )
-model = PeftModel.from_pretrained(base_model, LORA_PATH)
+
+print(f"Loading Adapters from: {LORA_PATH}")
+# This will now look for adapter_config.json in the root directory
+model = PeftModel.from_pretrained(base_model, LORA_PATH) [cite: 43]
 processor = AutoProcessor.from_pretrained(LORA_PATH)
 model.eval()
 
-# ── Inference Logic ──────────────────────────────────────────
+# --- Inference Logic ---
 def analyze_document(input_img, custom_prompt):
     if input_img is None:
-        return "Please upload an image first."
+        return "Please upload an image first." [cite: 100]
     
     if not custom_prompt:
-        custom_prompt = "Convert this document image into structured Markdown."
+        custom_prompt = "Convert this document image into structured Markdown." [cite: 22, 23]
 
     messages = [
         {
@@ -48,7 +54,7 @@ def analyze_document(input_img, custom_prompt):
                 {"type": "text", "text": custom_prompt},
             ],
         }
-    ]
+    ] [cite: 51, 52, 53]
 
     # Preparation
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -63,56 +69,49 @@ def analyze_document(input_img, custom_prompt):
 
     # Generation
     with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=1024)
-        # Trim the input tokens from the output
+        generated_ids = model.generate(**inputs, max_new_tokens=1024) [cite: 75]
+        
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
+        
         output_text = processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            generated_ids_trimmed, 
+            skip_special_tokens=True, 
+            clean_up_tokenization_spaces=False
         )
 
-    return output_text[0]
+    return output_text[0] [cite: 101]
 
-# ── Enhanced UI Construction ──────────────────────────────────
+# --- UI Construction ---
 with gr.Blocks(css=custom_css, theme=gr.themes.Monochrome()) as demo:
     with gr.Column():
-        gr.Markdown("# 🔮 QWEN2-VL: DOCUMENT INTELLIGENCE", elem_id="header-text")
-        gr.Markdown("Fine-tuned Vision-Language Model specializing in OCR, Layout Analysis, and LaTeX-to-Markdown conversion.")
+        gr.Markdown("# 🔮 STRUCTURA-VL: DOCUMENT INTELLIGENCE", elem_id="header-text")
+        gr.Markdown("Fine-tuned Vision-Language Model specializing in OCR, Layout Analysis, and LaTeX-to-Markdown conversion.") [cite: 21, 22]
 
     with gr.Tabs(elem_classes="tabs"):
         with gr.TabItem("🚀 Conversion Lab"):
             with gr.Row():
                 with gr.Column(scale=1, variant="panel"):
                     gr.Markdown("### Input Source")
-                    img_input = gr.Image(type="pil", label="Upload Document/Scan")
+                    img_input = gr.Image(type="pil", label="Upload Document/Scan") [cite: 100]
                     
                     with gr.Accordion("Advanced Settings", open=False):
                         prompt_input = gr.Textbox(
                             label="System Prompt", 
                             placeholder="Convert this document into structured Markdown...",
                             lines=2
-                        )
+                        ) [cite: 53]
                     
-                    submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary")
-                    gr.Markdown("*(Optimized for 2B-Instruct LoRA)*")
+                    submit_btn = gr.Button("✨ EXTRACT MARKDOWN", variant="primary") [cite: 101]
                 
                 with gr.Column(scale=2):
                     gr.Markdown("### Markdown Output")
-                    md_output = gr.Markdown(label="Rendered Result", value="*Result will appear here...*")
+                    md_output = gr.Markdown(label="Rendered Result", value="*Result will appear here...*") [cite: 101]
                     with gr.Accordion("Raw Text", open=False):
                         raw_output = gr.Code(label="Source Code", language="markdown")
 
-        with gr.TabItem("📊 Model Specifications"):
-            with gr.Row():
-                with gr.Column(elem_classes="feedback-card"):
-                    gr.Markdown("### QLoRA Adapter (NF4)")
-                    gr.Markdown("Rank: 16 | Alpha: 32. Trained to preserve spatial awareness while improving LaTeX and Table recognition.")
-                with gr.Column(elem_classes="feedback-card"):
-                    gr.Markdown("### Vision Encoder")
-                    gr.Markdown("Utilizes 2D-RoPE and dynamically scaled patches to capture fine-grained text from high-resolution scans.")
-
-    # Event Mapping
+    # Mapping logic
     submit_btn.click(
         fn=analyze_document, 
         inputs=[img_input, prompt_input], 
